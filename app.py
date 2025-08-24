@@ -163,6 +163,10 @@ def generate_quiz_with_deepseek(transcript_text):
     if not api_key:
         return None, "DeepSeek API key not found. Please set DEEPSEEK_API_KEY environment variable."
     
+    # Check if API key is placeholder
+    if api_key in ["XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", "your_actual_deepseek_api_key_here", "your_deepseek_api_key_here"]:
+        return None, "❌ Invalid API key detected. Please replace the placeholder in your .env file with a real DeepSeek API key from https://platform.deepseek.com/"
+    
     url = "https://api.deepseek.com/v1/chat/completions"
     
     prompt = f"""Generate as many multiple-choice questions as possible from this text. Create comprehensive coverage of all key topics, concepts, and details mentioned. Aim for maximum questions while maintaining quality.
@@ -186,7 +190,9 @@ Generate as many questions as the content allows - aim for maximum coverage!"""
     # Try different model names if one fails
     models_to_try = ["deepseek-chat", "deepseek-coder", "deepseek-chat-33b", "deepseek-chat-6.7b", "deepseek-chat-1.3b"]
     
-    for model_name in models_to_try:
+    for i, model_name in enumerate(models_to_try):
+        print(f"🔄 Trying model {i+1}/{len(models_to_try)}: {model_name}")
+        
         data = {
             "model": model_name,
             "messages": [{"role": "user", "content": prompt}],
@@ -202,8 +208,20 @@ Generate as many questions as the content allows - aim for maximum coverage!"""
             # Debug: Log response details
             if response.status_code != 200:
                 error_detail = f"Status: {response.status_code}, Response: {response.text[:500]}"
-                print(f"Model {model_name} failed: {error_detail}")  # Debug print
-                continue  # Try next model
+                print(f"❌ Model {model_name} failed: {error_detail}")
+                
+                # Provide specific error messages for common issues
+                if response.status_code == 401:
+                    print("🔑 Authentication failed - check your API key")
+                    return None, f"❌ API authentication failed with model {model_name}. Please verify your DeepSeek API key is correct and active."
+                elif response.status_code == 429:
+                    print("⏰ Rate limit exceeded")
+                    continue  # Try next model
+                elif response.status_code == 400:
+                    print("📝 Bad request - model may not exist")
+                    continue  # Try next model
+                else:
+                    continue  # Try next model
             
             response.raise_for_status()
             
@@ -215,19 +233,26 @@ Generate as many questions as the content allows - aim for maximum coverage!"""
             if json_match:
                 json_str = json_match.group(0)
                 parsed_result = json.loads(json_str)
+                print(f"✅ Success with model: {model_name}")
                 return parsed_result, None
             else:
+                print(f"⚠️ Model {model_name} returned invalid JSON format")
                 continue  # Try next model
             
         except requests.exceptions.Timeout:
+            print(f"⏰ Model {model_name} timed out")
             continue  # Try next model
         except requests.exceptions.ConnectionError:
+            print(f"🌐 Model {model_name} connection error")
             continue  # Try next model
         except requests.exceptions.RequestException as e:
+            print(f"❌ Model {model_name} request error: {str(e)}")
             continue  # Try next model
         except json.JSONDecodeError as e:
+            print(f"📝 Model {model_name} JSON decode error: {str(e)}")
             continue  # Try next model
         except Exception as e:
+            print(f"❌ Model {model_name} unexpected error: {str(e)}")
             continue  # Try next model
     
     # If all models failed, try the exact working format from test
@@ -252,12 +277,13 @@ Generate as many questions as the content allows - aim for maximum coverage!"""
             if json_match:
                 json_str = json_match.group(0)
                 parsed_result = json.loads(json_str)
+                print("✅ Fallback succeeded!")
                 return parsed_result, None
         
-        return None, "All DeepSeek models failed. Please check your API key and try again."
+        return None, "❌ All DeepSeek models failed. Please check your API key and try again. If the issue persists, verify your DeepSeek account status and API key permissions."
         
     except Exception as e:
-        return None, f"Fallback also failed: {str(e)}"
+        return None, f"❌ Fallback also failed: {str(e)}"
 
 def create_pdf_report(data, filename):
     """Create PDF report using reportlab"""
@@ -299,10 +325,30 @@ def main():
     # Sidebar for configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
-        st.info("Make sure to set your DEEPSEEK_API_KEY environment variable")
         
-        # Add some helpful information
-        st.markdown("### How to use:")
+        # Check API key status
+        api_key = os.getenv('DEEPSEEK_API_KEY')
+        if not api_key:
+            st.error("❌ DEEPSEEK_API_KEY not set")
+            st.info("💡 Create a .env file with your API key")
+        elif api_key in ["XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", "your_actual_deepseek_api_key_here", "your_deepseek_api_key_here"]:
+            st.error("❌ Invalid API key detected")
+            st.info("💡 Replace placeholder with real API key")
+        else:
+            st.success("✅ API key configured")
+            st.info(f"🔑 Key length: {len(api_key)} characters")
+        
+        st.markdown("### 🔑 How to get API key:")
+        st.markdown("1. Go to [DeepSeek Platform](https://platform.deepseek.com/)")
+        st.markdown("2. Sign up/Login to your account")
+        st.markdown("3. Navigate to API Keys section")
+        st.markdown("4. Generate a new API key")
+        st.markdown("5. Copy the key to your `.env` file")
+        
+        st.markdown("### 📁 .env file format:")
+        st.code("DEEPSEEK_API_KEY=sk-your_actual_key_here", language="bash")
+        
+        st.markdown("### 🚀 How to use:")
         st.markdown("**From YouTube Video:**")
         st.markdown("1. Choose 'YouTube Video' option")
         st.markdown("2. Paste a YouTube URL")
